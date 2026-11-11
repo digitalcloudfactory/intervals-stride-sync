@@ -13,7 +13,7 @@ INTERVALS_BASE_URL = "https://intervals.icu/api/v1"
 def get_current_week_range():
     today = datetime.now()
     start_of_week = today - timedelta(days=today.weekday()) # Monday
-    # Padded by +1 week day to ensure Sunday workouts are never clipped by timezones
+    # Padded by +1 day to ensure Sunday workouts are never clipped
     end_of_week = start_of_week + timedelta(days=7) 
     return start_of_week.strftime("%Y-%m-%d"), end_of_week.strftime("%Y-%m-%d")
 
@@ -31,7 +31,7 @@ def map_sport_type(stride_type):
     return "Ride"
 
 def convert_to_seconds(duration, unit):
-    """Converts any time unit (minutes, hours, seconds) into total seconds."""
+    """Converts any time unit into total seconds for Intervals step compatibility."""
     if not unit:
         unit = "s"
     unit = unit.lower()
@@ -66,6 +66,23 @@ def parse_stride_segments(segments):
         steps_lines.append(line)
     return "\n".join(steps_lines)
 
+def extract_local_datetime(raw_timestamp):
+    """Extracts a clean YYYY-MM-DDTHH:MM:SS string from an ISO timestamp for Intervals.icu."""
+    if not raw_timestamp:
+        return None
+    try:
+        # If it ends with 'Z', strip it or parse it
+        cleaned = raw_timestamp.replace("Z", "")
+        # If there's a fractional second, parse and format cleanly
+        if "." in cleaned:
+            dt = datetime.strptime(cleaned.split(".")[0], "%Y-%m-%dT%H:%M:%S")
+        else:
+            dt = datetime.strptime(cleaned, "%Y-%m-%dT%H:%M:%S")
+        return dt.strftime("%Y-%m-%dT%H:%M:%S")
+    except Exception:
+        # Fallback to simple slice if format varies
+        return raw_timestamp[:19]
+
 def fetch_stride_workouts_for_week():
     start_date, end_date = get_current_week_range()
     print(f"DEBUG: Fetching Stride workouts from {start_date} to {end_date}")
@@ -79,18 +96,13 @@ def fetch_stride_workouts_for_week():
     response = requests.get(url, headers=headers)
     
     print(f"DEBUG: Stride Response Status Code: {response.status_code}")
-    print(f"DEBUG: Stride Raw Response Text: {response.text}")
     
     if response.status_code != 200:
         raise Exception(f"Stride API Error: {response.text}")
         
     data = response.json()
-    if isinstance(data, list):
-        activities = data
-    else:
-        activities = data.get("activities", [])
-        
-    print(f"DEBUG: Parsed {len(activities)} activities from Stride payload.")
+    activities = data if isinstance(data, list) else data.get("activities", [])
+    print(f"DEBUG: Parsed {len(activities)} total activities from Stride payload.")
     
     formatted_workouts = []
     for target_activity in activities:
@@ -101,12 +113,12 @@ def fetch_stride_workouts_for_week():
         sport_type = map_sport_type(raw_sport_type)
         print(f"DEBUG: Activity '{workout_name}' | Type: '{raw_sport_type}' -> Mapped: {sport_type}")
         
-        raw_date = target_activity.get("started_at") or target_activity.get("planned_at")
+        raw_date = target_activity.get("planned_at") or target_activity.get("started_at")
         if not raw_date:
-            print(f"DEBUG: Skipping activity {activity_id} due to missing date.")
+            print(f"DEBUG: Skipping activity {activity_id} due to missing time/date.")
             continue
             
-        workout_date = raw_date.split("T")[0]
+        start_date_local = extract_local_datetime(raw_date)
         planned_tss = target_activity.get("planned_training_score") or target_activity.get("training_score")
         planned_duration = target_activity.get("planned_duration_seconds") or target_activity.get("duration_seconds")
         
@@ -131,7 +143,7 @@ def fetch_stride_workouts_for_week():
             "name": workout_name,
             "type": sport_type,
             "description": description,
-            "date": workout_date,
+            "start_date_local": start_date_local,
             "workout_steps": workout_steps,
             "planned_tss": planned_tss,
             "planned_duration": planned_duration
@@ -157,7 +169,7 @@ def push_to_intervals(workouts):
         event_payload = {
             "external_id": f"stride-{workout['id']}",
             "category": "WORKOUT",
-            "start_date_local": f"{workout['date']}T00:00:00",
+            "start_date_local": workout["start_date_local"],
             "name": workout["name"],
             "type": workout["type"],
             "description": full_desc
