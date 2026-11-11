@@ -1,4 +1,5 @@
 import os
+import json
 import requests
 from datetime import datetime, timedelta
 
@@ -49,7 +50,8 @@ def parse_stride_segments(segments):
 
 def fetch_stride_workouts_for_week():
     start_date, end_date = get_current_week_range()
-    print(f"Fetching Stride workouts from {start_date} to {end_date}...")
+    print(f"=== STRIDE SYNC START ===")
+    print(f"Target Date Window: {start_date} to {end_date} (Monday - Sunday)")
     
     headers = {
         "Authorization": f"Bearer {STRIDE_API_TOKEN}",
@@ -59,39 +61,37 @@ def fetch_stride_workouts_for_week():
     url = f"{STRIDE_BASE_URL}/athletes/me/activities?start={start_date}&end={end_date}"
     response = requests.get(url, headers=headers)
     
+    print(f"Stride API Activities List Response Code: {response.status_code}")
     if response.status_code != 200:
         raise Exception(f"Stride API Error [{response.status_code}]: {response.text}")
         
     data = response.json()
     activities = data.get("activities", [])
+    print(f"Total raw activities returned by Stride for this window: {len(activities)}")
     
-    if not activities:
-        print("No activities or workouts found scheduled for this week on Stride.")
-        return []
-        
-    print(f"Found {len(activities)} total activities/workouts on Stride calendar.")
     formatted_workouts = []
     
-    for target_activity in activities:
+    for idx, target_activity in enumerate(activities, 1):
         activity_id = target_activity.get("id")
-        workout_name = target_activity.get("name", "Structured Workout")
-        raw_sport_type = target_activity.get("type", "")
+        workout_name = target_activity.get("name", "Unnamed Workout")
+        raw_sport_type = target_activity.get("type", "UNKNOWN")
+        
+        print(f"\n--- Inspecting Activity [{idx}/{len(activities)}] ---")
+        print(f"  ID: {activity_id}")
+        print(f"  Name: {workout_name}")
+        print(f"  Raw Sport Type: '{raw_sport_type}'")
         
         sport_type = map_sport_type(raw_sport_type)
         if not sport_type:
-            print(f"Skipping non-cycling/running activity: '{workout_name}' (Type: {raw_sport_type})")
+            print(f"  -> FILTERED OUT: Type '{raw_sport_type}' is not Ride or Run.")
             continue
+        print(f"  -> KEPT AS: {sport_type}")
         
         raw_date = target_activity.get("started_at") or target_activity.get("planned_at")
         if raw_date:
             workout_date = raw_date.split("T")[0]
         else:
+            print(f"  -> SKIPPED: Missing date field (started_at/planned_at).")
             continue
             
-        print(f"Processing: {workout_name} on {workout_date} (Type: {raw_sport_type} -> {sport_type}, ID: {activity_id})")
-        
-        planned_tss = target_activity.get("planned_training_score") or target_activity.get("training_score")
-        planned_duration = target_activity.get("planned_duration_seconds") or target_activity.get("duration_seconds")
-        
-        workout_endpoint = f"{STRIDE_BASE_URL}/activities/{activity_id}/workout"
-        workout_res = requests.get(workout_endpoint, headers=headers)
+        planned_tss = target_activity
