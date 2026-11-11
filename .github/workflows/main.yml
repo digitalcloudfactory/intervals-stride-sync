@@ -1,0 +1,33 @@
+name: Sync Stride Workouts to Intervals.icu
+
+on:
+  schedule:
+    # Runs every day at 04:00 UTC
+    - cron: '0 4 * * *'
+  workflow_dispatch: # Allows you to trigger it manually from the GitHub Actions tab
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install requests
+
+      - name: Run Weekly Workout Sync
+        env:
+          STRIDE_API_TOKEN: ${{ secrets.STRIDE_API_TOKEN }}
+          INTERVALS_API_KEY: ${{ secrets.INTERVALS_API_KEY }}
+          INTERVALS_ATHLETE_ID: "0" # Defaults to the token owner
+        run: |
+          python scripts/sync_workout.py
