@@ -13,7 +13,6 @@ INTERVALS_BASE_URL = "https://intervals.icu/api/v1"
 def get_current_week_range():
     """Calculates the start (Monday) and end (Sunday) of the current week."""
     today = datetime.now()
-    # Monday is 0, Sunday is 6
     start_of_week = today - timedelta(days=today.weekday())
     end_of_week = start_of_week + timedelta(days=6)
     
@@ -28,7 +27,6 @@ def fetch_stride_workouts_for_week():
         "Accept": "application/json"
     }
     
-    # Query Stride activities endpoint for the date window
     url = f"{STRIDE_BASE_URL}/athletes/me/activities?start={start_date}&end={end_date}"
     response = requests.get(url, headers=headers)
     
@@ -50,16 +48,20 @@ def fetch_stride_workouts_for_week():
         workout_name = target_activity.get("name", "Structured Workout")
         sport_type = target_activity.get("type", "RIDE").upper()
         
-        # Extract the date (Stride returns started_at or planned_at with timestamps or YYYY-MM-DD)
+        # Extract date
         raw_date = target_activity.get("started_at") or target_activity.get("planned_at")
         if raw_date:
             workout_date = raw_date.split("T")[0]
         else:
-            continue # Skip if date cannot be determined
+            continue
             
         print(f"Processing: {workout_name} on {workout_date} (ID: {activity_id})")
         
-        # Fetch detailed workout structure/intervals for this activity
+        # Extract TSS / Training Load & Planned Duration
+        planned_tss = target_activity.get("planned_training_score") or target_activity.get("training_score")
+        planned_duration = target_activity.get("planned_duration_seconds") or target_activity.get("duration_seconds")
+        
+        # Fetch detailed workout structure/intervals
         workout_endpoint = f"{STRIDE_BASE_URL}/activities/{activity_id}/workout"
         workout_res = requests.get(workout_endpoint, headers=headers)
         
@@ -82,7 +84,9 @@ def fetch_stride_workouts_for_week():
             "type": sport_type,
             "description": description,
             "date": workout_date,
-            "workout_steps": workout_steps
+            "workout_steps": workout_steps,
+            "planned_tss": planned_tss,
+            "planned_duration": planned_duration
         })
         
     return formatted_workouts
@@ -98,6 +102,7 @@ def parse_stride_segments(segments):
         high_target = seg.get("high_target")
         target_unit = seg.get("target_unit", "%FTP")
         
+        # Intervals.icu format: - 10m 50%
         line = f"- {duration}{unit} "
         if name:
             line += f"({name}) "
@@ -123,4 +128,43 @@ def push_to_intervals(workouts):
     for workout in workouts:
         full_description = workout["description"]
         if workout["workout_steps"]:
-            full_description = f"{full_description}\n\nStructured Workout:\n{
+            steps_text = workout["workout_steps"]
+            if full_description:
+                full_description = f"{full_description}\n\n{steps_text}"
+            else:
+                full_description = steps_text
+
+        event_payload = {
+            "external_id": f"stride-{workout['id']}",
+            "category": "WORKOUT",
+            "start_date_local": f"{workout['date']}T00:00:00",
+            "name": workout["name"],
+            "type": workout["type"],
+            "description": full_description
+        }
+        
+        # Add planned TSS / Load if present
+        if workout["planned_tss"] is not None:
+            event_payload["icu_training_load"] = workout["planned_tss"]
+            
+        # Add planned duration in seconds if present
+        if workout["planned_duration"] is not None:
+            event_payload["moving_time"] = workout["planned_duration"]
+            
+        payload.append(event_payload)
+    
+    response = requests.post(url, auth=auth, json=payload)
+    
+    if response.status_code in [200, 201]:
+        print("Successfully synced the week's workouts, steps, and TSS to Intervals.icu!")
+    else:
+        raise Exception(f"Intervals.icu API Error [{response.status_code}]: {response.text}")
+
+if __name__ == "__main__":
+    if not STRIDE_API_TOKEN:
+        raise ValueError("STRIDE_API_TOKEN is missing from environment variables.")
+    if not INTERVALS_API_KEY:
+        raise ValueError("INTERVALS_API_KEY is missing from environment variables.")
+        
+    workouts = fetch_stride_workouts_for_week()
+    push_to_intervals(workouts)
