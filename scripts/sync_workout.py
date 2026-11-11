@@ -13,19 +13,58 @@ INTERVALS_BASE_URL = "https://intervals.icu/api/v1"
 def get_current_week_range():
     today = datetime.now()
     start_of_week = today - timedelta(days=today.weekday()) # Monday
-    # Padding end date to Monday of next week ensures Sunday activities aren't clipped by timezones
+    # Padded by +1 week day to ensure Sunday workouts are never clipped by timezones
     end_of_week = start_of_week + timedelta(days=7) 
     return start_of_week.strftime("%Y-%m-%d"), end_of_week.strftime("%Y-%m-%d")
 
 def map_sport_type(stride_type):
+    """Maps Stride sport types to valid Intervals.icu activity types."""
     if not stride_type:
-        return None
+        return "Ride"
     stride_type_upper = stride_type.upper()
     if stride_type_upper in ["RIDE", "CYCLING"]:
         return "Ride"
     elif stride_type_upper in ["RUN", "RUNNING"]:
         return "Run"
-    return None
+    elif stride_type_upper in ["STRENGTH", "WEIGHTTRAINING"]:
+        return "WeightTraining"
+    return "Ride"
+
+def convert_to_seconds(duration, unit):
+    """Converts any time unit (minutes, hours, seconds) into total seconds."""
+    if not unit:
+        unit = "s"
+    unit = unit.lower()
+    if unit in ["m", "min", "mins"]:
+        return int(duration * 60)
+    elif unit in ["h", "hr", "hrs", "hour", "hours"]:
+        return int(duration * 3600)
+    else:
+        return int(duration)
+
+def parse_stride_segments(segments):
+    """Parses Stride segments into Intervals.icu step format using total seconds."""
+    steps_lines = []
+    for seg in segments:
+        duration = seg.get("duration", 0)
+        unit = seg.get("duration_unit", "s")
+        total_seconds = convert_to_seconds(duration, unit)
+        
+        name = seg.get("name", "")
+        low_target = seg.get("low_target")
+        high_target = seg.get("high_target")
+        target_unit = seg.get("target_unit", "%FTP")
+        
+        line = f"- {total_seconds}s "
+        if name:
+            line += f"({name}) "
+        if low_target is not None:
+            if high_target and high_target != low_target:
+                line += f"{low_target}-{high_target}{target_unit}"
+            else:
+                line += f"{low_target}{target_unit}"
+        steps_lines.append(line)
+    return "\n".join(steps_lines)
 
 def fetch_stride_workouts_for_week():
     start_date, end_date = get_current_week_range()
@@ -62,9 +101,6 @@ def fetch_stride_workouts_for_week():
         sport_type = map_sport_type(raw_sport_type)
         print(f"DEBUG: Activity '{workout_name}' | Type: '{raw_sport_type}' -> Mapped: {sport_type}")
         
-        if not sport_type:
-            continue
-            
         raw_date = target_activity.get("started_at") or target_activity.get("planned_at")
         if not raw_date:
             print(f"DEBUG: Skipping activity {activity_id} due to missing date.")
@@ -82,27 +118,13 @@ def fetch_stride_workouts_for_week():
         
         if workout_res.status_code == 200:
             w_data = workout_res.json()
+            summary = w_data.get("summary", "")
+            if summary:
+                description = f"{summary}\n\n{description}".strip()
+                
             segments = w_data.get("segments", [])
             if segments:
-                steps_lines = []
-                for seg in segments:
-                    dur = seg.get("duration", 0)
-                    unit = seg.get("duration_unit", "s")
-                    s_name = seg.get("name", "")
-                    low = seg.get("low_target")
-                    high = seg.get("high_target")
-                    t_unit = seg.get("target_unit", "%FTP")
-                    
-                    line = f"- {dur}{unit} "
-                    if s_name:
-                        line += f"({s_name}) "
-                    if low is not None:
-                        if high and high != low:
-                            line += f"{low}-{high}{t_unit}"
-                        else:
-                            line += f"{low}{t_unit}"
-                    steps_lines.append(line)
-                workout_steps = "\n".join(steps_lines)
+                workout_steps = parse_stride_segments(segments)
 
         formatted_workouts.append({
             "id": activity_id,
@@ -119,7 +141,7 @@ def fetch_stride_workouts_for_week():
 
 def push_to_intervals(workouts):
     if not workouts:
-        print("DEBUG: No workouts matched the filter to push to Intervals.icu.")
+        print("DEBUG: No workouts found to push to Intervals.icu.")
         return
         
     print(f"DEBUG: Pushing {len(workouts)} workouts to Intervals.icu...")
