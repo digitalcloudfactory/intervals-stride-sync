@@ -14,7 +14,6 @@ def get_six_week_range():
     """Calculates a 6-week range: starting from Monday of the current week through Sunday 5 weeks forward (42 days total)."""
     today = datetime.now()
     start_of_week = today - timedelta(days=today.weekday()) # Monday of current week
-    # 6 weeks total: Current week (7 days) + 5 future weeks (35 days) = 42 days
     end_date = start_of_week + timedelta(days=42)
     return start_of_week.strftime("%Y-%m-%d"), end_date.strftime("%Y-%m-%d")
 
@@ -83,24 +82,24 @@ def extract_local_datetime(raw_timestamp):
 
 def fetch_stride_workouts_for_six_weeks():
     start_date, end_date = get_six_week_range()
-    print(f"DEBUG: Fetching Stride workouts for 6-week window: {start_date} to {end_date}")
+    print("DEBUG: Fetching Stride workouts for 6-week window: " + start_date + " to " + end_date)
     
     headers = {
-        "Authorization": f"Bearer {STRIDE_API_TOKEN}",
+        "Authorization": "Bearer " + STRIDE_API_TOKEN,
         "Accept": "application/json"
     }
     
-    url = f"{STRIDE_BASE_URL}/athletes/me/activities?start={start_date}&end={end_date}"
+    url = STRIDE_BASE_URL + "/athletes/me/activities?start=" + start_date + "&end=" + end_date
     response = requests.get(url, headers=headers)
     
-    print(f"DEBUG: Stride Response Status Code: {response.status_code}")
+    print("DEBUG: Stride Response Status Code: " + str(response.status_code))
     
     if response.status_code != 200:
-        raise Exception(f"Stride API Error: {response.text}")
+        raise Exception("Stride API Error: " + response.text)
         
     data = response.json()
     activities = data if isinstance(data, list) else data.get("activities", [])
-    print(f"DEBUG: Parsed {len(activities)} total activities from Stride payload for the 6-week window.")
+    print("DEBUG: Parsed total activities from Stride payload: " + str(len(activities)))
     
     formatted_workouts = []
     for target_activity in activities:
@@ -109,4 +108,12 @@ def fetch_stride_workouts_for_six_weeks():
         raw_sport_type = target_activity.get("type", "UNKNOWN")
         
         sport_type = map_sport_type(raw_sport_type)
-        print(f"DEBUG: Activity '{workout_name}' | Type: '{raw_sport_type}' -> M
+        print("DEBUG: Processing Activity ID: " + str(activity_id) + " | Type: " + raw_sport_type + " -> " + sport_type)
+        
+        raw_date = target_activity.get("planned_at") or target_activity.get("started_at")
+        if not raw_date:
+            continue
+            
+        start_date_local = extract_local_datetime(raw_date)
+        planned_tss = target_activity.get("planned_training_score") or target_activity.get("training_score")
+        planned_duration = target_activity.get
