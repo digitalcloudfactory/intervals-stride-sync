@@ -95,26 +95,3 @@ def fetch_stride_workouts_for_week():
         
         workout_endpoint = f"{STRIDE_BASE_URL}/activities/{activity_id}/workout"
         workout_res = requests.get(workout_endpoint, headers=headers)
-        
-        description = target_activity.get("description", "")
-        workout_steps = None
-        
-        if workout_res.status_code == 200:
-            w_data = workout_res.json()
-            summary = w_data.get("summary", "")
-            if summary:
-                description = f"{summary}\n\n{description}".strip()
-            
-            segments = w_data.get("segments", [])
-            if segments:
-                workout_steps = parse_stride_segments(segments)
-
-        workout_item = {
-            "id": activity_id,
-            "name": workout_name,
-            "type": sport_type,
-            "description": description,
-            "date": workout_date,
-            "workout_steps": workout_steps,
-            "planned_tss": planned_tss,
-            "
