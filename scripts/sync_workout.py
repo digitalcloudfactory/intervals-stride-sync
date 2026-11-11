@@ -11,32 +11,22 @@ STRIDE_BASE_URL = "https://api.stride.is/v1"
 INTERVALS_BASE_URL = "https://intervals.icu/api/v1"
 
 def get_current_week_range():
-    """Calculates the start (Monday) and end (Sunday) of the current week."""
     today = datetime.now()
     start_of_week = today - timedelta(days=today.weekday())
     end_of_week = start_of_week + timedelta(days=6)
-    
     return start_of_week.strftime("%Y-%m-%d"), end_of_week.strftime("%Y-%m-%d")
 
 def map_sport_type(stride_type):
-    """
-    Maps Stride sport types to Intervals.icu activity types.
-    Returns None for non-targeted sports (e.g. Strength, Yoga) so they are filtered out.
-    """
     if not stride_type:
         return None
-    
     stride_type_upper = stride_type.upper()
-    
     if stride_type_upper in ["RIDE", "CYCLING"]:
         return "Ride"
     elif stride_type_upper in ["RUN", "RUNNING"]:
         return "Run"
-    else:
-        return None
+    return None
 
 def parse_stride_segments(segments):
-    """Parses Stride segments into Intervals.icu compatible structured steps text."""
     steps_lines = []
     for seg in segments:
         duration = seg.get("duration", 0)
@@ -55,7 +45,6 @@ def parse_stride_segments(segments):
             else:
                 line += f"{low_target}{target_unit}"
         steps_lines.append(line)
-        
     return "\n".join(steps_lines)
 
 def fetch_stride_workouts_for_week():
@@ -93,7 +82,6 @@ def fetch_stride_workouts_for_week():
             print(f"Skipping non-cycling/running activity: '{workout_name}' (Type: {raw_sport_type})")
             continue
         
-        # Extract date
         raw_date = target_activity.get("started_at") or target_activity.get("planned_at")
         if raw_date:
             workout_date = raw_date.split("T")[0]
@@ -102,11 +90,9 @@ def fetch_stride_workouts_for_week():
             
         print(f"Processing: {workout_name} on {workout_date} (Type: {raw_sport_type} -> {sport_type}, ID: {activity_id})")
         
-        # Extract TSS / Training Load & Planned Duration
         planned_tss = target_activity.get("planned_training_score") or target_activity.get("training_score")
         planned_duration = target_activity.get("planned_duration_seconds") or target_activity.get("duration_seconds")
         
-        # Fetch detailed workout structure/intervals
         workout_endpoint = f"{STRIDE_BASE_URL}/activities/{activity_id}/workout"
         workout_res = requests.get(workout_endpoint, headers=headers)
         
@@ -123,9 +109,12 @@ def fetch_stride_workouts_for_week():
             if segments:
                 workout_steps = parse_stride_segments(segments)
 
-        # Build workout dictionary securely
         workout_item = {
             "id": activity_id,
             "name": workout_name,
             "type": sport_type,
             "description": description,
+            "date": workout_date,
+            "workout_steps": workout_steps,
+            "planned_tss": planned_tss,
+            "
