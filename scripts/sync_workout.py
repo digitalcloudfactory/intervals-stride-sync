@@ -12,8 +12,9 @@ INTERVALS_BASE_URL = "https://intervals.icu/api/v1"
 
 def get_current_week_range():
     today = datetime.now()
-    start_of_week = today - timedelta(days=today.weekday())
-    end_of_week = start_of_week + timedelta(days=6)
+    start_of_week = today - timedelta(days=today.weekday()) # Monday
+    # Padding end date to Monday of next week ensures Sunday activities aren't clipped by timezones
+    end_of_week = start_of_week + timedelta(days=7) 
     return start_of_week.strftime("%Y-%m-%d"), end_of_week.strftime("%Y-%m-%d")
 
 def map_sport_type(stride_type):
@@ -45,7 +46,6 @@ def fetch_stride_workouts_for_week():
         raise Exception(f"Stride API Error: {response.text}")
         
     data = response.json()
-    # Handle if data is a list directly or a dictionary containing 'activities'
     if isinstance(data, list):
         activities = data
     else:
@@ -74,7 +74,6 @@ def fetch_stride_workouts_for_week():
         planned_tss = target_activity.get("planned_training_score") or target_activity.get("training_score")
         planned_duration = target_activity.get("planned_duration_seconds") or target_activity.get("duration_seconds")
         
-        # Fetch detailed segments
         workout_endpoint = f"{STRIDE_BASE_URL}/activities/{activity_id}/workout"
         workout_res = requests.get(workout_endpoint, headers=headers)
         
