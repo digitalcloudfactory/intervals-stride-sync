@@ -33,7 +33,6 @@ def map_sport_type(stride_type):
     elif stride_type_upper in ["RUN", "RUNNING"]:
         return "Run"
     else:
-        # Skip strength, yoga, swim, hike, etc.
         return None
 
 def fetch_stride_workouts_for_week():
@@ -107,4 +106,6 @@ def fetch_stride_workouts_for_week():
             "type": sport_type,
             "description": description,
             "date": workout_date,
-            "workout_steps":
+            "workout_steps": workout_steps,
+            "planned_tss": planned_tss,
+            "planned_duration": planned_duration
