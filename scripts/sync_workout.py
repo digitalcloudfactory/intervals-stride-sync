@@ -35,6 +35,29 @@ def map_sport_type(stride_type):
     else:
         return None
 
+def parse_stride_segments(segments):
+    """Parses Stride segments into Intervals.icu compatible structured steps text."""
+    steps_lines = []
+    for seg in segments:
+        duration = seg.get("duration", 0)
+        unit = seg.get("duration_unit", "s")
+        name = seg.get("name", "")
+        low_target = seg.get("low_target")
+        high_target = seg.get("high_target")
+        target_unit = seg.get("target_unit", "%FTP")
+        
+        line = f"- {duration}{unit} "
+        if name:
+            line += f"({name}) "
+        if low_target is not None:
+            if high_target and high_target != low_target:
+                line += f"{low_target}-{high_target}{target_unit}"
+            else:
+                line += f"{low_target}{target_unit}"
+        steps_lines.append(line)
+        
+    return "\n".join(steps_lines)
+
 def fetch_stride_workouts_for_week():
     start_date, end_date = get_current_week_range()
     print(f"Fetching Stride workouts from {start_date} to {end_date}...")
@@ -100,12 +123,9 @@ def fetch_stride_workouts_for_week():
             if segments:
                 workout_steps = parse_stride_segments(segments)
 
-        formatted_workouts.append({
+        # Build workout dictionary securely
+        workout_item = {
             "id": activity_id,
             "name": workout_name,
             "type": sport_type,
             "description": description,
-            "date": workout_date,
-            "workout_steps": workout_steps,
-            "planned_tss": planned_tss,
-            "planned_duration": planned_duration
