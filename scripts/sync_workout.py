@@ -42,8 +42,19 @@ def convert_to_seconds(duration, unit):
     else:
         return int(duration)
 
+def format_target_unit(raw_unit):
+    """Cleans up target units like 'percent_of_ftp' into standard '%'."""
+    if not raw_unit:
+        return "%"
+    
+    unit_lower = str(raw_unit).lower()
+    if "percent" in unit_lower or "ftp" in unit_lower or "pct" in unit_lower:
+        return "%"
+    
+    return raw_unit
+
 def parse_stride_segments(segments):
-    """Parses Stride segments into Intervals.icu step format using total seconds."""
+    """Parses Stride segments into Intervals.icu step format using total seconds and clean units."""
     steps_lines = []
     for seg in segments:
         duration = seg.get("duration", 0)
@@ -53,7 +64,8 @@ def parse_stride_segments(segments):
         name = seg.get("name", "")
         low_target = seg.get("low_target")
         high_target = seg.get("high_target")
-        target_unit = seg.get("target_unit", "%FTP")
+        raw_target_unit = seg.get("target_unit", "%")
+        target_unit = format_target_unit(raw_target_unit)
         
         line = f"- {total_seconds}s "
         if name:
