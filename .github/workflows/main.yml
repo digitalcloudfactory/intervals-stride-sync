@@ -3,7 +3,7 @@ name: Sync Stride Workouts to Intervals.icu
 on:
   schedule:
     # Runs every day at 04:00 UTC
-    - cron: '0 4 * * *'
+    - cron: '*/15 * * * *'
   workflow_dispatch: # Allows you to trigger it manually from the GitHub Actions tab
 
 jobs:
