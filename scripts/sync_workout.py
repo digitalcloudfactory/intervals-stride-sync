@@ -1,4 +1,5 @@
 import os
+import time
 import requests
 from datetime import datetime, timedelta
 
@@ -107,7 +108,6 @@ def fetch_stride_workouts_for_six_weeks():
     
     formatted_workouts = []
     for target_activity in activities:
-        # Freshly initialize local variables per activity to prevent state bleed
         activity_id = target_activity.get("id")
         workout_name = target_activity.get("name", "Unnamed Workout")
         raw_sport_type = target_activity.get("type", "UNKNOWN")
@@ -123,9 +123,11 @@ def fetch_stride_workouts_for_six_weeks():
         description = target_activity.get("description", "")
         workout_steps_text = None
         
-        # Fetch structured segments only for non-strength workouts
+        # Fetch structured segments for non-strength workouts with a rate-limit safeguard
         if sport_type != "WeightTraining":
             workout_endpoint = STRIDE_BASE_URL + "/activities/" + str(activity_id) + "/workout"
+            # Pause briefly to prevent 429 rate limit errors from Stride
+            time.sleep(0.3)
             workout_res = requests.get(workout_endpoint, headers=headers)
             
             if workout_res.status_code == 200:
