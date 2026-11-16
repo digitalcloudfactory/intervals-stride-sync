@@ -47,34 +47,8 @@ def format_target_unit(raw_unit):
         return "%"
     return raw_unit
 
-def parse_stride_segments_to_objects(segments):
-    structured_steps = []
-    for seg in segments:
-        duration = seg.get("duration", 0)
-        unit = seg.get("duration_unit", "s")
-        total_seconds = convert_to_seconds(duration, unit)
-        
-        name = seg.get("name", "")
-        low_target = seg.get("low_target")
-        high_target = seg.get("high_target")
-        raw_target_unit = seg.get("target_unit", "%")
-        target_unit = format_target_unit(raw_target_unit)
-        
-        step_obj = {
-            "duration": total_seconds,
-        }
-        if name:
-            step_obj["name"] = name
-        if low_target is not None:
-            step_obj["power"] = low_target
-            if high_target and high_target != low_target:
-                step_obj["max_power"] = high_target
-            step_obj["power_unit"] = target_unit
-            
-        structured_steps.append(step_obj)
-    return structured_steps
-
 def parse_stride_segments_to_text(segments):
+    """Formats segments into Intervals.icu native workout text syntax (e.g., '- 600s 45-55%')."""
     steps_lines = []
     for seg in segments:
         duration = seg.get("duration", 0)
@@ -95,7 +69,7 @@ def parse_stride_segments_to_text(segments):
                 line += f"{low_target}-{high_target}{target_unit}"
             else:
                 line += f"{low_target}{target_unit}"
-        steps_lines.append(line)
+        steps_lines.append(line.strip())
     return "\n".join(steps_lines)
 
 def extract_local_datetime(raw_timestamp):
@@ -149,9 +123,8 @@ def fetch_stride_workouts_for_six_weeks():
         planned_tss = target_activity.get("planned_training_score") or target_activity.get("training_score")
         planned_duration = target_activity.get("planned_duration_seconds") or target_activity.get("duration_seconds")
         
-        # Only query segment endpoint if it's not a strength workout or if it has a workout structure
         workout_steps_text = None
-        structured_steps = []
+        description = target_activity.get("description", "")
         
         if sport_type != "WeightTraining":
             workout_endpoint = STRIDE_BASE_URL + "/activities/" + str(activity_id) + "/workout"
@@ -160,24 +133,20 @@ def fetch_stride_workouts_for_six_weeks():
             if workout_res.status_code == 200:
                 w_data = workout_res.json()
                 summary = w_data.get("summary", "")
-                description = target_activity.get("description", "")
                 if summary:
                     description = summary + "\n\n" + description
-                target_activity["description"] = description
                     
                 segments = w_data.get("segments", [])
                 if segments:
                     workout_steps_text = parse_stride_segments_to_text(segments)
-                    structured_steps = parse_stride_segments_to_objects(segments)
 
         formatted_workouts.append({
             "id": activity_id,
             "name": workout_name,
             "type": sport_type,
-            "description": target_activity.get("description", "").strip(),
+            "description": description.strip(),
             "start_date_local": start_date_local,
             "workout_steps_text": workout_steps_text,
-            "structured_steps": structured_steps,
             "planned_tss": planned_tss,
             "planned_duration": planned_duration
         })
@@ -193,7 +162,6 @@ def push_to_intervals(workouts):
     auth = ("API_KEY", INTERVALS_API_KEY)
     url = INTERVALS_BASE_URL + "/athlete/" + str(INTERVALS_ATHLETE_ID) + "/events/bulk?upsert=true"
     
-    # Chunk workouts into batches of 10 to avoid payload size/timeout limits
     batch_size = 10
     for i in range(0, len(workouts), batch_size):
         batch = workouts[i:i + batch_size]
@@ -215,13 +183,6 @@ def push_to_intervals(workouts):
                 "type": workout["type"],
                 "description": full_desc
             }
-            
-            # Only include workout_doc if structured steps actually exist (prevents 500 error on Strength/unstructured rides)
-            if workout["structured_steps"]:
-                event_payload["workout_doc"] = {
-                    "description": workout["description"],
-                    "steps": workout["structured_steps"]
-                }
                 
             if workout["planned_tss"] is not None:
                 event_payload["icu_training_load"] = workout["planned_tss"]
