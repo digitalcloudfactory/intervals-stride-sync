@@ -11,14 +11,12 @@ STRIDE_BASE_URL = "https://api.stride.is/v1"
 INTERVALS_BASE_URL = "https://intervals.icu/api/v1"
 
 def get_six_week_range():
-    """Calculates a 6-week range: starting from Monday of the current week through Sunday 5 weeks forward (42 days total)."""
     today = datetime.now()
-    start_of_week = today - timedelta(days=today.weekday()) # Monday of current week
+    start_of_week = today - timedelta(days=today.weekday())
     end_date = start_of_week + timedelta(days=42)
     return start_of_week.strftime("%Y-%m-%d"), end_date.strftime("%Y-%m-%d")
 
 def map_sport_type(stride_type):
-    """Maps Stride sport types to valid Intervals.icu activity types."""
     if not stride_type:
         return "Ride"
     stride_type_upper = stride_type.upper()
@@ -31,7 +29,6 @@ def map_sport_type(stride_type):
     return "Ride"
 
 def convert_to_seconds(duration, unit):
-    """Converts any time unit into total seconds for Intervals step compatibility."""
     if not unit:
         unit = "s"
     unit = unit.lower()
@@ -43,18 +40,43 @@ def convert_to_seconds(duration, unit):
         return int(duration)
 
 def format_target_unit(raw_unit):
-    """Cleans up target units like 'percent_of_ftp' into standard '%'."""
     if not raw_unit:
         return "%"
-    
     unit_lower = str(raw_unit).lower()
     if "percent" in unit_lower or "ftp" in unit_lower or "pct" in unit_lower:
         return "%"
-    
     return raw_unit
 
-def parse_stride_segments(segments):
-    """Parses Stride segments into Intervals.icu step format using total seconds and clean units."""
+def parse_stride_segments_to_objects(segments):
+    """Parses Stride segments into Intervals.icu structured step objects for workout_doc."""
+    structured_steps = []
+    for seg in segments:
+        duration = seg.get("duration", 0)
+        unit = seg.get("duration_unit", "s")
+        total_seconds = convert_to_seconds(duration, unit)
+        
+        name = seg.get("name", "")
+        low_target = seg.get("low_target")
+        high_target = seg.get("high_target")
+        raw_target_unit = seg.get("target_unit", "%")
+        target_unit = format_target_unit(raw_target_unit)
+        
+        step_obj = {
+            "duration": total_seconds,
+        }
+        if name:
+            step_obj["name"] = name
+        if low_target is not None:
+            step_obj["power"] = low_target
+            if high_target and high_target != low_target:
+                step_obj["max_power"] = high_target
+            step_obj["power_unit"] = target_unit
+            
+        structured_steps.append(step_obj)
+    return structured_steps
+
+def parse_stride_segments_to_text(segments):
+    """Parses Stride segments into readable text lines."""
     steps_lines = []
     for seg in segments:
         duration = seg.get("duration", 0)
@@ -79,7 +101,6 @@ def parse_stride_segments(segments):
     return "\n".join(steps_lines)
 
 def extract_local_datetime(raw_timestamp):
-    """Extracts a clean YYYY-MM-DDTHH:MM:SS string from an ISO timestamp for Intervals.icu."""
     if not raw_timestamp:
         return None
     try:
@@ -134,7 +155,8 @@ def fetch_stride_workouts_for_six_weeks():
         workout_res = requests.get(workout_endpoint, headers=headers)
         
         description = target_activity.get("description", "")
-        workout_steps = None
+        workout_steps_text = None
+        structured_steps = []
         
         if workout_res.status_code == 200:
             w_data = workout_res.json()
@@ -144,15 +166,17 @@ def fetch_stride_workouts_for_six_weeks():
                 
             segments = w_data.get("segments", [])
             if segments:
-                workout_steps = parse_stride_segments(segments)
+                workout_steps_text = parse_stride_segments_to_text(segments)
+                structured_steps = parse_stride_segments_to_objects(segments)
 
         formatted_workouts.append({
             "id": activity_id,
             "name": workout_name,
             "type": sport_type,
-            "description": description,
+            "description": description.strip(),
             "start_date_local": start_date_local,
-            "workout_steps": workout_steps,
+            "workout_steps_text": workout_steps_text,
+            "structured_steps": structured_steps,
             "planned_tss": planned_tss,
             "planned_duration": planned_duration
         })
@@ -171,11 +195,11 @@ def push_to_intervals(workouts):
     payload = []
     for workout in workouts:
         full_desc = workout["description"]
-        if workout["workout_steps"]:
+        if workout["workout_steps_text"]:
             if full_desc:
-                full_desc = full_desc + "\n\n" + workout["workout_steps"]
+                full_desc = full_desc + "\n\n" + workout["workout_steps_text"]
             else:
-                full_desc = workout["workout_steps"]
+                full_desc = workout["workout_steps_text"]
 
         event_payload = {
             "external_id": "stride-" + str(workout["id"]),
@@ -183,7 +207,11 @@ def push_to_intervals(workouts):
             "start_date_local": workout["start_date_local"],
             "name": workout["name"],
             "type": workout["type"],
-            "description": full_desc
+            "description": full_desc,
+            "workout_doc": {
+                "description": workout["description"],
+                "steps": workout["structured_steps"]
+            }
         }
         if workout["planned_tss"] is not None:
             event_payload["icu_training_load"] = workout["planned_tss"]
@@ -199,7 +227,7 @@ def push_to_intervals(workouts):
     if response.status_code not in [200, 201]:
         raise Exception("Intervals Error: " + response.text)
     else:
-        print("DEBUG: Successfully pushed 6-week window to Intervals!")
+        print("DEBUG: Successfully pushed 6-week window with structured workout docs to Intervals!")
 
 if __name__ == "__main__":
     workouts = fetch_stride_workouts_for_six_weeks()
