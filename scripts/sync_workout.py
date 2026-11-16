@@ -107,13 +107,12 @@ def fetch_stride_workouts_for_six_weeks():
     
     formatted_workouts = []
     for target_activity in activities:
+        # Freshly initialize local variables per activity to prevent state bleed
         activity_id = target_activity.get("id")
         workout_name = target_activity.get("name", "Unnamed Workout")
         raw_sport_type = target_activity.get("type", "UNKNOWN")
         
         sport_type = map_sport_type(raw_sport_type)
-        print("DEBUG: Processing Activity ID: " + str(activity_id) + " | Type: " + raw_sport_type + " -> " + sport_type)
-        
         raw_date = target_activity.get("planned_at") or target_activity.get("started_at")
         if not raw_date:
             continue
@@ -121,10 +120,10 @@ def fetch_stride_workouts_for_six_weeks():
         start_date_local = extract_local_datetime(raw_date)
         planned_tss = target_activity.get("planned_training_score") or target_activity.get("training_score")
         planned_duration = target_activity.get("planned_duration_seconds") or target_activity.get("duration_seconds")
-        
-        workout_steps_text = None
         description = target_activity.get("description", "")
+        workout_steps_text = None
         
+        # Fetch structured segments only for non-strength workouts
         if sport_type != "WeightTraining":
             workout_endpoint = STRIDE_BASE_URL + "/activities/" + str(activity_id) + "/workout"
             workout_res = requests.get(workout_endpoint, headers=headers)
@@ -138,6 +137,13 @@ def fetch_stride_workouts_for_six_weeks():
                 segments = w_data.get("segments", [])
                 if segments:
                     workout_steps_text = parse_stride_segments_to_text(segments)
+                    print(f"DEBUG: [Steps Parsed] {workout_name} ({len(segments)} segments)")
+                else:
+                    print(f"DEBUG: [No Segments Found] {workout_name}")
+            else:
+                print(f"DEBUG: [Workout Endpoint Status {workout_res.status_code}] {workout_name}")
+        else:
+            print(f"DEBUG: [Strength Workout - Skipping Segments] {workout_name}")
 
         formatted_workouts.append({
             "id": activity_id,
