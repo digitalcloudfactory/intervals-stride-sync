@@ -1,5 +1,4 @@
 import os
-import json
 import requests
 from datetime import datetime, timedelta
 
@@ -158,47 +157,43 @@ def push_to_intervals(workouts):
         print("DEBUG: No workouts found to push to Intervals.icu.")
         return
         
-    print("DEBUG: Pushing " + str(len(workouts)) + " workouts across the 6-week window in batches...")
+    print("DEBUG: Pushing all " + str(len(workouts)) + " workouts across the 6-week window in a single payload...")
     auth = ("API_KEY", INTERVALS_API_KEY)
     url = INTERVALS_BASE_URL + "/athlete/" + str(INTERVALS_ATHLETE_ID) + "/events/bulk?upsert=true"
     
-    batch_size = 10
-    for i in range(0, len(workouts), batch_size):
-        batch = workouts[i:i + batch_size]
-        payload = []
-        
-        for workout in batch:
-            full_desc = workout["description"]
-            if workout["workout_steps_text"]:
-                if full_desc:
-                    full_desc = full_desc + "\n\n" + workout["workout_steps_text"]
-                else:
-                    full_desc = workout["workout_steps_text"]
+    payload = []
+    for workout in workouts:
+        full_desc = workout["description"]
+        if workout["workout_steps_text"]:
+            if full_desc:
+                full_desc = full_desc + "\n\n" + workout["workout_steps_text"]
+            else:
+                full_desc = workout["workout_steps_text"]
 
-            event_payload = {
-                "external_id": "stride-" + str(workout["id"]),
-                "category": "WORKOUT",
-                "start_date_local": workout["start_date_local"],
-                "name": workout["name"],
-                "type": workout["type"],
-                "description": full_desc
-            }
-                
-            if workout["planned_tss"] is not None:
-                event_payload["icu_training_load"] = workout["planned_tss"]
-            if workout["planned_duration"] is not None:
-                event_payload["moving_time"] = workout["planned_duration"]
-                
-            payload.append(event_payload)
+        event_payload = {
+            "external_id": "stride-" + str(workout["id"]),
+            "category": "WORKOUT",
+            "start_date_local": workout["start_date_local"],
+            "name": workout["name"],
+            "type": workout["type"],
+            "description": full_desc
+        }
             
-        print(f"DEBUG: Sending batch {i//batch_size + 1} ({len(payload)} workouts) to Intervals.icu...")
-        response = requests.post(url, auth=auth, json=payload)
-        print(f"DEBUG: Intervals Response Status: {response.status_code}")
+        if workout["planned_tss"] is not None:
+            event_payload["icu_training_load"] = workout["planned_tss"]
+        if workout["planned_duration"] is not None:
+            event_payload["moving_time"] = workout["planned_duration"]
+            
+        payload.append(event_payload)
         
-        if response.status_code not in [200, 201]:
-            raise Exception("Intervals Error: " + response.text)
-            
-    print("DEBUG: Successfully pushed all batches to Intervals.icu!")
+    response = requests.post(url, auth=auth, json=payload)
+    print("DEBUG: Intervals Response Status: " + str(response.status_code))
+    print("DEBUG: Intervals Response Body: " + response.text)
+    
+    if response.status_code not in [200, 201]:
+        raise Exception("Intervals Error: " + response.text)
+    else:
+        print("DEBUG: Successfully pushed all workouts to Intervals.icu!")
 
 if __name__ == "__main__":
     workouts = fetch_stride_workouts_for_six_weeks()
