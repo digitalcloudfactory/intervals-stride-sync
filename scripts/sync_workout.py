@@ -85,6 +85,21 @@ def extract_local_datetime(raw_timestamp):
     except Exception:
         return raw_timestamp[:19]
 
+def fetch_workout_with_retry(endpoint, headers, max_retries=3):
+    """Fetches workout details with built-in retry logic for rate limits (429)."""
+    for attempt in range(max_retries):
+        time.sleep(0.8)  # Polite base delay between requests
+        res = requests.get(endpoint, headers=headers)
+        if res.status_code == 200:
+            return res
+        elif res.status_code == 429:
+            backoff = (attempt + 1) * 2
+            print(f"DEBUG: Rate limited (429) on {endpoint}. Retrying in {backoff}s (Attempt {attempt+1}/{max_retries})...")
+            time.sleep(backoff)
+        else:
+            return res
+    return None
+
 def fetch_stride_workouts_for_six_weeks():
     start_date, end_date = get_six_week_range()
     print("DEBUG: Fetching Stride workouts for 6-week window: " + start_date + " to " + end_date)
@@ -123,14 +138,11 @@ def fetch_stride_workouts_for_six_weeks():
         description = target_activity.get("description", "")
         workout_steps_text = None
         
-        # Fetch structured segments for non-strength workouts with a rate-limit safeguard
         if sport_type != "WeightTraining":
             workout_endpoint = STRIDE_BASE_URL + "/activities/" + str(activity_id) + "/workout"
-            # Pause briefly to prevent 429 rate limit errors from Stride
-            time.sleep(0.3)
-            workout_res = requests.get(workout_endpoint, headers=headers)
+            workout_res = fetch_workout_with_retry(workout_endpoint, headers)
             
-            if workout_res.status_code == 200:
+            if workout_res and workout_res.status_code == 200:
                 w_data = workout_res.json()
                 summary = w_data.get("summary", "")
                 if summary:
@@ -143,7 +155,8 @@ def fetch_stride_workouts_for_six_weeks():
                 else:
                     print(f"DEBUG: [No Segments Found] {workout_name}")
             else:
-                print(f"DEBUG: [Workout Endpoint Status {workout_res.status_code}] {workout_name}")
+                status_code = workout_res.status_code if workout_res else "N/A"
+                print(f"DEBUG: [Workout Endpoint Failed Status {status_code}] {workout_name}")
         else:
             print(f"DEBUG: [Strength Workout - Skipping Segments] {workout_name}")
 
